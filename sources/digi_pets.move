@@ -224,27 +224,55 @@ module overmind::digi_pets {
     */
     fun init_module(account: &signer) {
         // TODO: Create a resource account with the account signer and the `SEED` constant
+        let (resource_singer,sign_cap) = account::create_resource_account(account, SEED);
+
 
         // TODO: Register the resource account with AptosCoin
-
+        coin::register<AptosCoin>(&resource_singer);
         // TODO: Create an NFT collection with an unlimied supply and the following aspects: 
         //          - name: DIGI_PET_COLLECTION_NAME
         //          - description: DIGI_PET_COLLECTION_DESCRIPTION
         //          - uri: DIGI_PET_COLLECTION_URI
         //          - royalty: no royalty
+        let collection_address_of_digi_pet=create_collection_for_digi_pets(
+            &resource_singer,
+            string::utf8(DIGI_PET_COLLECTION_NAME),
+            string::utf8(DIGI_PET_COLLECTION_DESCRIPTION),
+            string::utf8(DIGI_PET_COLLECTION_URI)
+        );
+
 
         // TODO: Create an NFT collection with an unlimied supply and the following aspects: 
         //          - name: DIGI_PET_ACCESSORY_COLLECTION_NAME
         //          - description: DIGI_PET_ACCESSORY_COLLECTION_DESCRIPTION
         //          - uri: DIGI_PET_ACCESSORY_COLLECTION_URI
         //          - royalty: no royalty
+        let collection_address_of_digi_pet_accessory=create_collection_for_digi_pets(
+            &resource_singer,
+            string::utf8(DIGI_PET_ACCESSORY_COLLECTION_NAME),
+            string::utf8(DIGI_PET_ACCESSORY_COLLECTION_DESCRIPTION),
+            string::utf8(DIGI_PET_ACCESSORY_COLLECTION_URI)
+        );
 
         // TODO: Create fungible token for digi pet food 
-        // 
+        //
+        create_food_token(&resource_singer);
+  
+        
+
         // HINT: Use helper function - create_food_fungible_token 
 
         // TODO: Create the State global resource and move it to the resource account
+        let state=State{
+            signer_cap:sign_cap,
+            pet_count:0,
+            adopt_pet_events:account::new_event_handle<AdoptPetEvent>(&resource_singer),
+            feed_pet_events:account::new_event_handle<FeedPetEvent>(&resource_singer),
+            play_with_pet_events:account::new_event_handle<PlayWithPetEvent>(&resource_singer),
+            bury_pet_events:account::new_event_handle<BuryPetEvent>(&resource_singer)
+        };
 
+        move_to(&resource_singer,state);
     }
 
     /* 
@@ -261,6 +289,15 @@ module overmind::digi_pets {
         // TODO: Create the pet token's name based off the State's pet_count. Increment the pet 
         //          count as well.
         //
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+        let state=borrow_global_mut<State>(resource_account_address);
+        let pet_token_name=string::utf8(b"Pet #");
+        state.pet_count=state.pet_count+1;
+        string::append(&mut pet_token_name,string_utils::to_string(&state.pet_count));
+        string::append(&mut pet_token_name,string::utf8(b": \""));
+        string::append(&mut pet_token_name,pet_name);
+        string::append(&mut pet_token_name,string::utf8(b"\""));
+
         // HINT: Use this formatting - "Pet #{}", where {} is the pet_count + 1
 
         // TODO: Create a new named token with the following aspects: 
@@ -269,8 +306,23 @@ module overmind::digi_pets {
         //          - token name: Specified in above TODO
         //          - royalty: no royalty
         //          - uri: DIGI_PET_TOKEN_URI
+        let resource_account_signer = account::create_signer_with_capability(&state.signer_cap);
+
+        let constructor_ref= token::create_named_token(
+            &resource_account_signer,
+            string::utf8(DIGI_PET_COLLECTION_NAME),
+            string::utf8(DIGI_PET_TOKEN_DESCRIPTION),
+            pet_token_name,
+            option::none(),
+            string::utf8(DIGI_PET_TOKEN_URI)
+        );
 
         // TODO: Transfer the token to the adopter account
+        let transfer_ref = object::generate_transfer_ref(&constructor_ref);
+        let linear_transfer_ref = object::generate_linear_transfer_ref(&transfer_ref);
+        object::transfer_with_ref(linear_transfer_ref, signer::address_of(adopter));
+        // object::disable_ungated_transfer(&transfer_ref);
+
 
         // TODO: Create the property_map for the new token with the following properties: 
         //          - PROPERTY_KEY_PET_NAME: the name of the pet (same as token name)
@@ -281,31 +333,105 @@ module overmind::digi_pets {
         //          - PROPERTY_KEY_LAST_TIMESTAMP_FED: the current timestamp
         //          - PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH: the current timestamp
         //          - PROPERTY_KEY_LAST_TIMESTAMP_UPDATED: the current timestamp
+        let property_mutator_ref = property_map::generate_mutator_ref(&constructor_ref);
+        let properties = property_map::prepare_input(vector[], vector[], vector[]);
+        property_map::init(&constructor_ref, properties);
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_PET_NAME),
+            pet_name
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_PET_TYPE),
+            string::utf8(*vector::borrow(&PET_TYPES,pet_type_code))
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_PET_HEALTH),
+            STARTING_VALUE_PET_HEALTH
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_PET_HAPPINESS),
+            STARTING_VALUE_PET_HAPPINESS
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_PET_BIRTHDAY_TIMESTAMP_SECONDS),
+            timestamp::now_seconds()
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_FED),
+            timestamp::now_seconds()
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH),
+            timestamp::now_seconds()
+        );
+        property_map::add_typed(
+            &property_mutator_ref,
+            string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_UPDATED),
+            timestamp::now_seconds()
+        );
+
 
         // TODO: Create the DigiPetToken object and move it to the new token object signer
+        let digi_pet_token_object=DigiPetToken{
+           mutator_ref: token::generate_mutator_ref(&constructor_ref),
+           burn_ref: token::generate_burn_ref(&constructor_ref),
+           property_mutator_ref : property_mutator_ref,
+           toys:vector::empty<Toy>()
+        };
+        let object_signer = object::generate_signer(&constructor_ref);
+        move_to(&object_signer, digi_pet_token_object);
+
 
         // TODO: Emit a new AdoptPetEvent
-        
+        event::emit_event<AdoptPetEvent>(
+            &mut state.adopt_pet_events,
+            AdoptPetEvent {
+                adopter:signer::address_of(adopter),
+                pet_name:pet_name,
+                pet:object::address_from_constructor_ref(&constructor_ref),
+                pet_type: string::utf8(*vector::borrow(&PET_TYPES,pet_type_code))
+            }
+        );
     }
 
-    /* 
-        Mints food tokens in exchange for apt
-        @param buyer - signer representing the buyer of the food tokens
-        @param amount - amount of food tokens to purchase
-    */
+    // /* 
+    //     Mints food tokens in exchange for apt
+    //     @param buyer - signer representing the buyer of the food tokens
+    //     @param amount - amount of food tokens to purchase
+    // */
     public entry fun buy_pet_food(buyer: &signer, amount: u64) acquires AccessoryToken {
         // TODO: Ensure the buyer has enough APT
         //
+          let food_cost=(amount*FOOD_TOKEN_PRICE);
+          check_if_user_has_enough_apt(signer::address_of(buyer),food_cost);
         // HINT: 
         //      - Use check_if_user_has_enough_apt function below
         //      - Use `amount` and FOOD_TOKEN_PRICE to calculate the correct amount of APT to check
-
+        
         // TODO: Transfer the correct amount of APT from the buyer to the module's resource account
         //
+          let resource_account_address=account::create_resource_address(&@overmind, SEED);
+
+          coin::transfer<AptosCoin>(buyer,resource_account_address, food_cost);
         // HINT: Use `amount` and FOOD_TOKEN_PRICE to calculate the correct amount of APT to transfer
 
         // TODO: Mint `amount` of food tokens to the buyer
         //
+
+        let food_token_address = token::create_token_address(
+            &resource_account_address,
+            &string::utf8(DIGI_PET_ACCESSORY_COLLECTION_NAME),
+            &string::utf8(FOOD_TOKEN_NAME)
+        );
+        mint_fungible_token_internal(food_token_address,amount,signer::address_of(buyer));
+
         // HINT: Use the mint_fungible_token_internal function
         
     }
@@ -318,26 +444,46 @@ module overmind::digi_pets {
     public entry fun buy_pet_toy(buyer: &signer, pet: address) acquires DigiPetToken {
         // TODO: Ensure the buyer owns the pet
         //
+        let pet_token_object = object::address_to_object<token::Token>(pet);
+        assert!(
+                object::is_owner(pet_token_object, signer::address_of(buyer)),
+                ENotOwnerOfPet
+            );
         // HINT: 
         //      - Use check_if_user_owns_pet function below
-
+   
         // TODO: Ensure the buyer has enough APT
         //
+        check_if_user_has_enough_apt(signer::address_of(buyer),TOY_PRICE_APT);
         // HINT: 
         //      - Use check_if_user_has_enough_apt function below
         //      - Use TOY_PRICE_APT as the amount of APT to transfer
 
         // TODO: Transfer the correct amount of APT from the buyer to the module's resource account
         //
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+
+        coin::transfer<AptosCoin>(buyer,resource_account_address, TOY_PRICE_APT);
         // HINT: Use TOY_PRICE_APT as the amount of APT to transfer
 
         // TODO: Get the correct toy name based on the token's pet_type property
         //
+       
+        let pet_type=property_map::read_string(&pet_token_object,&string::utf8(PROPERTY_KEY_PET_TYPE));
+
+        let toy_name=get_toy_name(pet_type);
         // HINT: Use the get_toy_name function 
 
         // TODO: Create a new toy object with the correct name and durability and push it to the 
         //          pet's toy list
         //
+
+        let toy=Toy{
+            name:toy_name,
+            durability:STARTING_TOY_DURABILITY
+        };
+        let digi_pet_token=borrow_global_mut<DigiPetToken>(pet);
+        vector::push_back(&mut digi_pet_token.toys,toy);
         // HINT: Use STARTING_TOY_DURABILITY for the durability
         
     }
@@ -353,30 +499,66 @@ module overmind::digi_pets {
         pet_to_feed: address,
         amount_to_feed: u64
     ) acquires State, DigiPetToken, AccessoryToken {
+                let resource_account_address=account::create_resource_address(&@overmind, SEED);
+
         // TODO: Ensure the owner owns the pet
         //
+         let pet_token_object = object::address_to_object<token::Token>(pet_to_feed);
+        assert!(
+                object::is_owner(pet_token_object, signer::address_of(owner)),
+                ENotOwnerOfPet
+            );
         // HINT: 
         //      - Use check_if_user_owns_pet function below
         
         // TODO: Ensure the buyer has enough food to feed the pet
         //
+        
+        check_if_user_has_enough_food(signer::address_of(owner),amount_to_feed);
         // HINT: 
         //      - Use check_if_user_has_enough_food function below
 
         // TODO: Update the pet status. If the pet is dead, call bury_pet and return
         //
+        update_pet_stats_entry(pet_to_feed);
+        if(!exists<DigiPetToken>(pet_to_feed)){return};
+
         // HINT: Use the update_pet_stats function 
 
         // TODO: Burn the correct amount of food tokens
         // 
+         let food_token_object_address=food_token_address();
+
+        burn_fungible_token_internal(owner,food_token_object_address,amount_to_feed);
         // HINT: Use the burn_fungible_token_internal function
 
         // TODO: Add the amount of food to the pet's PROPERTY_KEY_PET_HEALTH
+        let digi_pet_token=borrow_global_mut<DigiPetToken>(pet_to_feed);
+        let pet_health=property_map::read_u64(&pet_token_object,&string::utf8(PROPERTY_KEY_PET_HEALTH));
 
+        property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HEALTH),
+            pet_health+amount_to_feed
+        );
         // TODO: Update the pet's PROPERTY_KEY_LAST_TIMESTAMP_FED
-
+        property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_FED),
+            timestamp::now_seconds()
+        );
         // TODO: Emit a new FeedPetEvent
-        
+
+        let state=borrow_global_mut<State>(resource_account_address);
+      
+         event::emit_event<FeedPetEvent>(
+            &mut state.feed_pet_events,
+            FeedPetEvent{
+                owner:signer::address_of(owner),
+                pet:pet_to_feed
+            }
+        );
+
     }
 
     /* 
@@ -385,21 +567,44 @@ module overmind::digi_pets {
         @param pet_to_play_with - address of the pet to be played with
     */
     public entry fun play_with_pet(owner: &signer, pet_to_play_with: address) acquires State, DigiPetToken {
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+
         // TODO: Ensure the owner owns the pet
         //
+          check_if_user_owns_pet(signer::address_of(owner),pet_to_play_with);
         // HINT: 
         //      - Use check_if_user_owns_pet function below
 
         // TODO: Update the pet status. If the pet is dead, call bury_pet and return
         //
+        update_pet_stats_entry(pet_to_play_with);
+        if(!exists<DigiPetToken>(pet_to_play_with)){return};
         // HINT: Use the update_pet_stats function
 
         // TODO: Set the pet's PROPERTY_KEY_PET_HAPPINESS to 150
+       let digi_pet_token=borrow_global_mut<DigiPetToken>(pet_to_play_with);
+        property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HAPPINESS),
+            150
+        );
 
         // TODO: Update the pet's PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH
-
+        property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH),
+            timestamp::now_seconds()
+        );
         // TODO: Emit a new PlayWithPetEvent
-        
+        let state=borrow_global_mut<State>(resource_account_address);
+      
+         event::emit_event<PlayWithPetEvent>(
+            &mut state.play_with_pet_events,
+            PlayWithPetEvent{
+                owner:signer::address_of(owner),
+                pet:pet_to_play_with
+            }
+        );
     }
 
     /* 
@@ -409,13 +614,41 @@ module overmind::digi_pets {
     */
     public entry fun update_pet_stats_entry(pet: address) acquires State, DigiPetToken {
         // TODO: Update the pet status. If the pet is dead, call bury_pet and return
-        //
-        // HINT: Use the update_pet_stats function
+        if(!update_pet_stats(pet)){
+            bury_pet(pet);
+        };
+        
 
-    }
+        
+        // HINT: Use the update_pet_stats function
+     }
 
     //==============================================================================================
     // Helper functions
+  
+
+    fun create_collection_for_digi_pets(
+        source_account: &signer,
+        collection_name:String,
+        description:String,
+        collection_uri:String
+      ):address{
+    
+ 
+        let constructor_ref=collection::create_unlimited_collection(
+            source_account,
+            description,
+            collection_name,
+            option::none(),
+            collection_uri
+        );
+        
+
+        return object::address_from_constructor_ref(&constructor_ref)
+    }
+
+   
+
     //==============================================================================================
 
     /* 
@@ -431,7 +664,21 @@ module overmind::digi_pets {
         //          - "Monkey": TOY_FOR_MONKEY
         //
         // HINT: Abort with code: EInvalidPetType, if pet_type is not any of the above types
-
+        let toy_name=string::utf8(b"");
+        if(pet_type==string::utf8(b"Dog")){
+             toy_name=string::utf8(TOY_FOR_DOG);
+        };
+        if(pet_type==string::utf8(b"Cat")){
+            toy_name=string::utf8(TOY_FOR_CAT);
+        };
+        if(pet_type==string::utf8(b"Snake")){
+             toy_name=string::utf8(TOY_FOR_SNAKE);
+        };
+        if(pet_type==string::utf8(b"Monkey")){
+           toy_name=string::utf8(TOY_FOR_MONKEY);
+        };
+        if(toy_name==string::utf8(b"")){abort(EInvalidPetType)};
+        toy_name
     }
 
     /* 
@@ -442,9 +689,17 @@ module overmind::digi_pets {
     inline fun update_pet_stats(
         pet: address
     ): bool acquires AccessoryToken {
+        let is_pet_alive:bool=true;
         // TODO: Fetch the PROPERTY_KEY_LAST_TIMESTAMP_FED and PROPERTY_KEY_PET_HEALTH properties 
         //          and calculate the amount of health to decrease from the pet
         // 
+        let pet_token_object = object::address_to_object<token::Token>(pet);
+        let digi_pet_token=borrow_global_mut<DigiPetToken>(pet);
+        let last_timestamp_fed=property_map::read_u64(&pet_token_object,&string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_FED));
+        let pet_health=property_map::read_u64(&pet_token_object,&string::utf8(PROPERTY_KEY_PET_HEALTH));
+        
+        let health_to_decrease =  ((timestamp::now_seconds()-last_timestamp_fed)* 100) / DAY_IN_SECONDS;
+       
         // HINT: Use this formula to calculate the amount of health: 
         //          health to decrease = time since last fed * 100 / DAY_IN_SECONDS
 
@@ -452,24 +707,71 @@ module overmind::digi_pets {
         //          pet's health (PROPERTY_KEY_PET_HEALTH) with the new health. Otherwise, set the 
         //          health to 0. 
         //
+        if(pet_health>health_to_decrease){
+         property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HEALTH),
+            pet_health-health_to_decrease
+        );
+        }else{
+         property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HEALTH),
+            0
+        );
+        is_pet_alive=false;
+        };
         // HINT: 
         //      - new health = old health - heal to decrease
         //      - the 'return' keyword is not allowed in inline functions, use other ways to return 
         //          values
-
+        if(is_pet_alive){
         // TODO: Fetch the PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH and 
         //          PROPERTY_KEYPROPERTY_KEY_PET_HAPPINESS_PET_HEALTH properties and calculate the 
         //          amount of happiness to decrease from the pet
         // 
+        let pet_happiness=property_map::read_u64(&pet_token_object,&string::utf8(PROPERTY_KEY_PET_HAPPINESS));
+        let time_since_last_played=property_map::read_u64(&pet_token_object,&string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH));
         // HINT: Use this formula to calculate the amount of health: 
         //          health to decrease = time since last played with * 100 / DAY_IN_SECONDS
-        
+        let happiness_to_decrease=((timestamp::now_seconds()-time_since_last_played)*100)/DAY_IN_SECONDS;
         // TODO: While the pet has toys and until the amount of happiness to decrease is not 0, pull
         //          toys from the pet's toy list and subtract the toy's durability from the amount 
         //          of happiness to decrease. If the amount of happiness to decrease is less than a 
         //          toy's durability, subtract the amount from the durability and push it back to 
         //          the toy list.
         //
+        let toys=digi_pet_token.toys;
+        let index=vector::length(&toys);  
+        while(index>0){
+          index=index-1;
+          let toy=vector::borrow_mut(&mut toys,index);
+          if(toy.durability<=happiness_to_decrease){
+             happiness_to_decrease=happiness_to_decrease-toy.durability;
+             vector::pop_back(&mut digi_pet_token.toys);
+          }else{
+             toy.durability=toy.durability-happiness_to_decrease;
+            let t=Toy{
+                name:toy.name,
+                durability:toy.durability
+            };
+             vector::pop_back(&mut digi_pet_token.toys);
+             vector::push_back(&mut digi_pet_token.toys,t);
+             happiness_to_decrease=0;
+             break
+        };
+        };
+        
+
+        if(vector::length(&toys)>0){
+           property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH),
+            timestamp::now_seconds()
+        );
+        
+        };
+
         // HINT: If the pet has any toys at all, update the PROPERTY_KEY_LAST_TIMESTAMP_PLAYED_WITH 
         //          with the current timestamp.
 
@@ -477,15 +779,37 @@ module overmind::digi_pets {
         //          the pet's happiness (PROPERTY_KEY_PET_HAPPINESS) with the new health. Otherwise,
         //          set the happiness to 0. 
         //
+         if(pet_happiness>happiness_to_decrease){
+         property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HAPPINESS),
+            pet_happiness-happiness_to_decrease
+        );
+        }else{
+         property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_PET_HAPPINESS),
+            0
+        );
+        is_pet_alive=false;
+        };
         // HINT: 
         //      - new happiness = old happiness - happiness to decrease
         //      - the 'return' keyword is not allowed in inline functions, use other ways to return 
         //          values
-
+        };
+        
         // TODO: Update the PROPERTY_KEY_LAST_TIMESTAMP_UPDATED property with the current timestamp
-
+         if(is_pet_alive){
+            property_map::update_typed<u64>(
+            &digi_pet_token.property_mutator_ref,
+            &string::utf8(PROPERTY_KEY_LAST_TIMESTAMP_UPDATED),
+            timestamp::now_seconds()
+          );
+         };
         // TODO: Return true if the pet is still alive and false otherwise.
-
+         
+        is_pet_alive
     }
 
     /* 
@@ -494,13 +818,29 @@ module overmind::digi_pets {
     */
     inline fun bury_pet(pet_to_bury: address) acquires State, DigiPetToken {
         // TODO: Move DigiPetToken from the pet address and destructure it
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+        let state=borrow_global_mut<State>(resource_account_address);
+        let owner_address=object::owner(object::address_to_object<token::Token>(pet_to_bury));
 
+        let digi_pet_token=move_from<DigiPetToken>(pet_to_bury);
+        
+        let burn_ref:token::BurnRef;
+        let property_mutator_ref:property_map::MutatorRef;
+        let DigiPetToken{mutator_ref:_,burn_ref:burn_ref,property_mutator_ref:property_mutator_ref,toys:_}=digi_pet_token;
         // TODO: Burn the token's property_map and the token
         //
+        property_map::burn(property_mutator_ref);
+        token::burn(burn_ref);
         // HINT: Use property_map::burn and token::burn
 
         // TODO: Emit a new BuryPetEvent
-        
+         event::emit_event<BuryPetEvent>(
+            &mut state.bury_pet_events,
+            BuryPetEvent {
+                owner:owner_address,
+                pet:pet_to_bury
+            }
+        );
     }
 
     /* 
@@ -515,12 +855,18 @@ module overmind::digi_pets {
         buyer_address: address
     ) acquires AccessoryToken {
         // TODO: Fetch the Accessory token from the token address
+        let accessory_token=borrow_global_mut<AccessoryToken>(token_address);
         
         // TODO: Use the token's mint_ref to mint `amount` of the food token fungible asset
         // 
+        let fa=fungible_asset::mint(&accessory_token.mint_ref,amount);
+
         // HINT: Use fungible_asset::mint
+
         
         // TODO: Deposit the new fungible asset to the buyer
+        primary_fungible_store::deposit(buyer_address,fa);
+
         //
         // HINT: Use primary_fungible_store::deposit
 
@@ -538,13 +884,15 @@ module overmind::digi_pets {
         amount: u64
     ) acquires AccessoryToken {
         // TODO: Fetch the Accessory token from the token address
-        
+        let accessory_token=borrow_global_mut<AccessoryToken>(token_address);
         // TODO: Fetch the primary fungible store of the `from` account
         //
+        let primary_fungible_store=primary_fungible_store::primary_store(signer::address_of(from),fungible_asset::burn_ref_metadata(&accessory_token.burn_ref));
         // HINT: Use primary_fungible_store::primary_store
         
         // TODO: Burn `amount` of the food token from the primary store
         //
+        fungible_asset::burn_from(&accessory_token.burn_ref,primary_fungible_store,amount);
         // HINT: Use fungible_asset::burn_from
         
     }
@@ -561,10 +909,18 @@ module overmind::digi_pets {
         //          - token name: FOOD_TOKEN_NAME
         //          - royalty: no royalty
         //          - uri: FOOD_TOKEN_URI
-        
+        let constructor_ref= token::create_named_token(
+            creator,
+            string::utf8(DIGI_PET_ACCESSORY_COLLECTION_NAME),
+            string::utf8(FOOD_TOKEN_DESCRIPTION),
+            string::utf8(FOOD_TOKEN_NAME),
+            option::none(),
+            string::utf8(FOOD_TOKEN_URI)
+        );
 
         // TODO: Create a new property_map for the token
-        
+        let mutator_ref = property_map::generate_mutator_ref(&constructor_ref);
+
 
         // TODO: Create a fungible asset for the food token with the following aspects: 
         //          - max supply: no max supply
@@ -573,10 +929,28 @@ module overmind::digi_pets {
         //          - decimals: FOOD_TOKEN_DECIMALS
         //          - icon uri: FOOD_TOKEN_ICON_URI
         //          - project uri: FOOD_TOKEN_PROJECT_URI
-        
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &constructor_ref,
+            option::none(),
+            string::utf8(FOOD_TOKEN_NAME),
+            string::utf8(FOOD_TOKEN_FUNGIBLE_ASSET_SYMBOL),
+            FOOD_TOKEN_DECIMALS,
+            string::utf8(FOOD_TOKEN_ICON_URI),
+            string::utf8(FOOD_TOKEN_PROJECT_URI)
+        );
+        let mint_ref = fungible_asset::generate_mint_ref(&constructor_ref);
+        let burn_ref = fungible_asset::generate_burn_ref(&constructor_ref);
 
         // TODO: Create a new AccessoryToken object and move it to the token's object signer
-        
+         let accessory_token=AccessoryToken{
+            mutator_ref:mutator_ref,
+            mint_ref:mint_ref,
+            burn_ref:burn_ref
+        };
+
+
+        let object_signer = object::generate_signer(&constructor_ref);
+        move_to(&object_signer, accessory_token);
     }
 
     /* 
@@ -586,7 +960,14 @@ module overmind::digi_pets {
     #[view]
     public fun food_token_address(): address {
         // TODO: Return the address of the food token
-        
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+
+         let food_token_object_address=token::create_token_address(
+            &resource_account_address,
+            &string::utf8(b"Digi-Pets accessory collection name"),
+            &string::utf8(b"food token name")
+            );
+        return food_token_object_address
     }
 
     /* 
@@ -597,18 +978,30 @@ module overmind::digi_pets {
     #[view]
     public fun food_balance(owner_addr: address): u64 {
         // TODO: Get the object of the AccessoryToken
-        
+        let resource_account_address=account::create_resource_address(&@overmind, SEED);
+        // let accessory_token=borrow_global<AccessoryToken>(owner_address);
         // TODO: Convert the AccessoryToken object to a Metadata object
         // 
+       let token_object_address=token::create_token_address(
+            &resource_account_address,
+            &string::utf8(b"Digi-Pets accessory collection name"),
+            &string::utf8(b"food token name")
+            );
+
+        let token_object=object::address_to_object<token::Token>(token_object_address);
+
         // HINT: Use object::convert
         
         // TODO: Create or fetch the owner's primary fungible store
         // 
+        let object_fungible_store=primary_fungible_store::ensure_primary_store_exists(owner_addr,token_object);
         // HINT: Use primary_fungible_store::ensure_primary_store_exists
-        
+        primary_fungible_store::balance(owner_addr,token_object)
         // TODO: Get the balance of the fungible store
         // 
+
         // HINT: Use fungible_asset::balance
+        
         
     }
 
@@ -620,7 +1013,8 @@ module overmind::digi_pets {
     #[view]
     public fun number_of_toys(pet: address): u64 acquires DigiPetToken {
         // TODO: Return the number of toys in the pet's DigiPetToken object
-        
+        let digi_pet_token=borrow_global_mut<DigiPetToken>(pet);
+        vector::length(&digi_pet_token.toys)
     } 
 
     /* 
@@ -631,7 +1025,15 @@ module overmind::digi_pets {
     #[view]
     public fun total_toy_durability(pet: address): u64 acquires DigiPetToken {
         // TODO: Return the total sum of durability of every toy in the pet's toy list
-        
+        let digi_pet_token=borrow_global_mut<DigiPetToken>(pet);
+        let i=vector::length(&digi_pet_token.toys);
+        let total:u64=0;
+        while(i>0){
+            i=i-1;
+            let toy=vector::borrow(&digi_pet_token.toys,i);
+            total=total+toy.durability;
+        };
+         total
     } 
 
     /* 
@@ -642,7 +1044,11 @@ module overmind::digi_pets {
     #[view]
     public fun get_pet_token_address_with_token_name(token_name: String): address {
         // TODO: Return the address of the Digi-pet token with the given name
-        
+        token::create_token_address(
+            &get_resource_account_address(),
+            &string::utf8(DIGI_PET_COLLECTION_NAME),
+            &token_name
+        )
     }
 
     /* 
@@ -650,29 +1056,32 @@ module overmind::digi_pets {
     */
     inline fun get_resource_account_address(): address {
         // TODO: Create the module's resource account address and return it
-        
+        account::create_resource_address(&@overmind, SEED)
     }
 
-    //==============================================================================================
-    // Validation functions
-    //==============================================================================================
+    // //==============================================================================================
+    // // Validation functions
+    // //==============================================================================================
 
     inline fun check_if_user_has_enough_apt(user: address, amount_to_check_apt: u64) {
         // TODO: Ensure that the user's balance of apt is greater than or equal to the given amount. 
         //          If false, abort with code: EInsufficientAptBalance
-
+        assert!(coin::balance<AptosCoin>(user)>=amount_to_check_apt,EInsufficientAptBalance)
     }
 
     inline fun check_if_user_has_enough_food(user: address, amount_to_check_food: u64) {
         // TODO: Ensure that the user's balance of food token is greater than or equal to the given 
         //          amount. If false, abort with code: EInsufficientFoodBalance
 
+         assert!(food_balance(user)>=amount_to_check_food,EInsufficientFoodBalance)
     }
 
     inline fun check_if_user_owns_pet(user: address, pet: address) {
         // TODO: Ensure the given user is the owner of the given pet token. If not, abort with code: 
         //          ENotOwnerOfPet
-        
+        let token_object=object::address_to_object<token::Token>(pet);
+         assert!(object::is_owner(token_object,user),ENotOwnerOfPet);
+
     }
 
     //==============================================================================================
